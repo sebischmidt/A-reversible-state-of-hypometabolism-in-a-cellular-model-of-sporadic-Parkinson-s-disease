@@ -1,0 +1,385 @@
+---
+VignetteBuilder: knitr
+Suggests: BiocStyle, knitr, rmarkdown
+title: "Report non-targeted metabolomics analysis, clustering and differential abundance analysis"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = 'N:/AG_Wurst/blackboard_neurodegeneration/Sebastian/Sicherung/Intenso Backup/Arbeit_Coronashutdown/non-targeted Metabolomics')
+#load libraries
+
+library(uuid)
+library(extrafont)
+library(readxl)
+library(devEMF)
+library(ggplot2)
+library(lattice)
+library(tidyverse)
+library(plotrix)
+library(fdrtool)
+library(uuid)
+library(devEMF)
+library(EnhancedVolcano)
+library(devtools)
+library(ggbiplot)
+library(data.table)
+library(sm)
+library(data.table)
+library(gridExtra)
+library(kableExtra)
+library(DT)
+library(RColorBrewer)
+library(pheatmap)
+```
+
+# Loading and processing of data
+
+***
+
+## Count matrix
+
+First, we load and filter the count matrix.
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+#############################################
+## Load count matrix and tidy it
+
+# read count matrix
+sample_metabolites <- readr::read_delim("list_norm_median_cellcount_newnames.txt", delim = "\t")
+
+# assign rownames
+metabolites_filtered <- sample_metabolites %>% remove_rownames %>% column_to_rownames(var="CHEMICAL ID")
+drops <- c("PATHWAY SORTORDER","SUPER PATHWAY","SUB PATHWAY", "BIOCHEMICAL", "CLIENT IDENTIFIER", "PUBCHEM", "CAS", "KEGG", "HMDB")
+metabolites_filtered <- metabolites_filtered[ , !(names(metabolites_filtered) %in% drops)]
+
+# exclude rarely detected metabolites
+metabolites_filtered <- na_if(metabolites_filtered, 0)
+metabolites_filtered<- metabolites_filtered[rowMeans(metabolites_filtered, na.rm = TRUE) != 0, ]
+metabolites_filtered <- metabolites_filtered[rowSums(is.na(metabolites_filtered)) < 22, ] ##only metabolites with less than 30 % NA`s
+
+
+```
+
+
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(sample_metabolites), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+## Check distribution
+Log transformation increases normal distribution of sample measurements for the respective metabolites 
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+#############################################
+## Check for normal distribution
+chemical_id <- row.names(metabolites_filtered)
+pdf(file = "histos_metabolites.pdf")
+for (g in chemical_id){
+
+  par(mfrow = c(1,2))
+  hist(as.numeric(metabolites_filtered[c(g),]), breaks = 20, main = as.character(g))
+  hist(as.numeric(log(metabolites_filtered[c(g),],2)), breaks = 20, main = "" )
+}
+dev.off()
+
+statistics <- data.frame(row.names(metabolites_filtered))
+names(statistics) <- "CHEMICAL ID"
+statistics$shapiro <- apply(metabolites_filtered,1,function(x){shapiro.test(x[1:72])$p.value})
+statistics$shapiro.log <- apply(metabolites_filtered,1,function(x){shapiro.test(log(x[1:72],2))$p.value})
+
+## log transformation makes sense
+
+metabolites_filtered <- log(metabolites_filtered,2)
+
+
+```
+
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(statistics), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+# Dimensionality reduction methods 
+***
+
+## PCA
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, fig.cap="PCA", figures-side, fig.show="hold", out.width="30%", dev = "CairoSVG"}
+#############################################
+#############################################
+## Dimensionality reduction methods
+
+#PCA
+
+
+metabolites_pca <- prcomp(t(na.omit(metabolites_filtered)), center = TRUE, scale = TRUE)
+samples_pca <- metabolites_pca$x
+
+
+samples <- c(rep("iJ2C-R1-015",6), rep("i1JF-R1-018",6), rep("iM89-R1-005",6), rep("iC99-R1-007",6), rep("iR66-R1-007",6), rep("iG3G-R1-039",6), rep("i1E4-R1-003",6), rep("iAY6-R1-003",6), rep("iPX7-R1-001",6), rep("i88H-R1-002",6), rep("iO3H-R1-005",6), rep("i82A-R1-002",6))
+condition <- c(rep("sPD",6), rep("Ctrl",6), rep("sPD",18), rep("Ctrl",12), rep("sPD",18),rep("Ctrl",12))
+pca_condition <- ggbiplot(metabolites_pca, choices = c(1,2), ellipse=TRUE, groups=condition, var.axes = FALSE) +
+  geom_jitter(size = 2.5, aes(color = condition)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(color="black"),
+        axis.ticks = element_line(color="black"),
+        axis.text.y = element_text(color="black"))
+ggsave("PCA_condition_metabolite.emf",pca_condition, device = "emf", height = 15, width = 15, units = "cm", dpi = 400)
+
+pca_samples <- ggbiplot(metabolites_pca, choices = c(1,2), ellipse=TRUE, groups=samples, var.axes = FALSE) +
+  geom_jitter(size = 2.5, aes(color = samples)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(color="black"),
+        axis.ticks = element_line(color="black"),
+        axis.text.y = element_text(color="black"))
+ggsave("PCA_samples_metabolite.emf",pca_samples, device = "emf", height = 15, width = 15, units = "cm", dpi = 400)
+
+plot(pca_condition)
+plot(pca_samples)
+
+```
+
+
+# Clustering and correlation between sample {.tabset}
+***
+Next, we perform clustering and correlation analysis, and plot these results in a couple of heatmaps. Most of the samples looked fine, no sample was removed as outlier.
+
+## Distance matrix, followed by clustering
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, fig.cap="Heatmap of distances", dev = "CairoSVG"}
+#############################################
+#############################################
+## Correlation analyses
+
+###################################
+#with distances
+
+#calculate distances between samples
+sampleDists <- dist(t(metabolites_filtered))
+
+#tidy matrix
+sampleDistMatrix <- as.matrix(sampleDists)
+
+#make a vector with colors and then plot heatmap
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+annotation_col = data.frame(
+  Samples = samples, 
+  Condition = condition
+)
+rownames(annotation_col) = colnames(metabolites_filtered)
+
+dist_heatmap <- pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors,
+         annotation_col = annotation_col)
+
+emf("dist_heatmap.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=10, height=10, family= "Arial") 
+dist_heatmap
+dev.off()
+
+dist_heatmap
+```
+
+## Correlation between samples
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, , fig.cap="Heatmap of correlations", dev = "CairoSVG"}
+###################################
+#with correlations
+
+#calculate correlations between samples
+sampleDists <- cor(na.omit(metabolites_filtered))
+
+#tidy matrix
+sampleDistMatrix <- as.matrix(sampleDists)
+
+
+#make a vector with colors and then plot heatmap
+colors <- colorRampPalette(brewer.pal(9, "Blues"))(255)
+cor_heatmap <- pheatmap(sampleDistMatrix, col=colors,  annotation_col = annotation_col)
+
+emf("cor_heatmap.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=10, height=10, family= "Arial") 
+cor_heatmap
+dev.off()
+
+```
+
+## Hierarchical clustering of the samples
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, fig.cap="Hierarchical clustering", dev = "CairoSVG"}
+###################################
+#simple hierarchical clustering using distances
+clusters <- hclust(dist(t(metabolites_filtered)))
+plot(clusters, labels = colnames(metabolites_filtered))
+
+emf("hirachical_clustering.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=15, height=5, family= "Arial") 
+plot(clusters, labels = colnames(metabolites_filtered))
+dev.off()
+
+```
+
+# Differential abundance analysis
+***
+We performed a differential abundance analysis by parametric testing (two-sided t-test). The mean value of replicates per patient-derived cell line was used.
+
+## Average values of replicates per patient-derived cell line
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+colnames <- unique(sapply(strsplit(names(metabolites_filtered)[-1], "_", fixed=TRUE), "[", 1)) 
+metabolites_means <- data.frame(sapply(colnames, function(x) rowMeans(metabolites_filtered [, grep(x, names(metabolites_filtered))] ))) 
+colnames(metabolites_means) <- colnames
+
+sortList <- c("i1JF-R1-018", "iG3G-R1-039", "i1E4-R1-003", "iO3H-R1-005", "i82A-R1-002", "iJ2C-R1-015", "iM89-R1-005", "iC99-R1-007", "iR66-R1-007", "iAY6-R1-003", "iPX7-R1-001", "i88H-R1-002")
+  
+
+metabolites_means <- metabolites_means[,sortList]
+metabolites_means <- metabolites_means[rowSums(is.na(metabolites_means)) < 5, ] ##only metabolites with less than 30 % NA`s
+
+metabolites_means$"mean Ctrl" =apply(metabolites_means,1,function(x){mean(x[1:5], na.rm = TRUE)})
+metabolites_means$"mean sPD" =apply(metabolites_means,1,function(x){mean(x[6:12], na.rm = TRUE)})
+metabolites_means$"fc" =apply(metabolites_means,1,function(x){x[14]/x[13]})
+
+```
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(metabolites_means), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Differential abundance analysis using two-sided t-test
+
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+metabolites_means$"p-value shapiro-test"=apply(metabolites_means,1,function(x){shapiro.test(as.numeric(x[1:12]))$p.value})
+metabolites_means$"p-value wilcox-test"=apply(metabolites_means,1,function(x){wilcox.test(as.numeric(x[1:5]),as.numeric(x[6:12]))$p.value})
+
+metabolites_means <-  metabolites_means[order(metabolites_means$`p-value wilcox-test`), ]
+p_metabolites <- metabolites_means$`p-value wilcox-test`
+metabolites_means$"p.adj wilcox-test" <- fdrtool(p_metabolites, statistic="pvalue",
+                                           plot=TRUE, color.figure=TRUE, verbose=TRUE,
+                                           cutoff.method="pct0")$qval
+
+metabolites_means$"p-value t-test"=apply(metabolites_means,1,function(x){t.test(as.numeric(x[1:5]),as.numeric(x[6:12]))$p.value})
+
+metabolites_means <-  metabolites_means[order(metabolites_means$`p-value t-test`), ]
+p_metabolites <- metabolites_means$`p-value t-test`
+metabolites_means$"p.adj t-test" <- fdrtool(p_metabolites, statistic="pvalue",
+                                           plot=TRUE, color.figure=TRUE, verbose=TRUE,
+                                           cutoff.method="pct0")$qval
+
+
+
+metabolites_siglist <- row.names(metabolites_means[metabolites_means$`p.adj t-test` < 0.05,])  
+  
+`CHEMICAL ID` <- rownames(metabolites_means)
+rownames(metabolites_means) <- NULL
+metabolites_means <- cbind(`CHEMICAL ID`,metabolites_means)  
+
+
+keep <- c("PATHWAY SORTORDER","SUPER PATHWAY","SUB PATHWAY", "BIOCHEMICAL", "CLIENT IDENTIFIER", "CHEMICAL ID", "HMDB", "KEGG", "HMDB", "PUBCHEM")
+metabolites_ids <- sample_metabolites[ (sample_metabolites$`CHEMICAL ID` %in% metabolites_means$`CHEMICAL ID`),]
+metabolites_ids <- metabolites_ids[ , (names(metabolites_ids) %in% keep)]
+metabolites_means <- merge(metabolites_means, metabolites_ids, by =  "CHEMICAL ID")
+metabolites_means <-  metabolites_means[order(metabolites_means$`p.adj t-test`), ]
+
+```
+
+
+And these are the results of our differential abundance analysis. Only genes with a signficant adjusted p-value are shown.
+
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, message=FALSE}
+
+metabolites_sig <- metabolites_means[metabolites_means$`p.adj t-test` < 0.05,]
+
+datatable(metabolites_sig, extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+#write.table(diff_res, file = "results/tables/non-targeted-metabolomics_diff_res.csv", sep= ",", row.names = FALSE, quote = FALSE, na = "")
+```
+
+
+# Visualization of significantly altered metabolites {.tabset .tabset-fade .tabset-pills}
+
+## Draw boxplots of significantly altered metabolites
+```{r, echo = FALSE, include = TRUE, warning = FALSE, dev = "CairoSVG"}
+metabolites_draw <- metabolites_means[,1:13]
+row.names(metabolites_draw) <- metabolites_draw$`CHEMICAL ID`
+metabolites_draw <- metabolites_draw[,2:13]
+
+metabolites_draw <- t(metabolites_draw)
+Condition <- c(rep("Ctrl", 5), rep("sPD", 7))
+Condition_list <- data.frame(c(row.names(metabolites_draw)),Condition, row.names = TRUE )
+
+Sample <- rownames(metabolites_draw)
+metabolites_draw <- cbind(Sample, Condition_list, metabolites_draw)
+rownames(metabolites_draw) <- NULL
+
+
+for (m in metabolites_siglist){
+  
+    
+  f = ggplot(metabolites_draw, aes(Condition, metabolites_draw[,m])) + 
+    ggtitle(paste('chemID_',m,sep="")) + xlab("") + ylab("Raw area counts") + 
+    geom_boxplot(aes(color = Condition)) +
+    geom_jitter(aes(color = Condition), size = 3, width = 0.15) + 
+    scale_color_manual(values=c("darkblue", "darkred")) +
+    theme_classic() +
+    theme(legend.position = "none") +
+    theme(axis.text.x = element_text(color="black"),
+          axis.ticks = element_line(color="black"),
+          axis.text.y = element_text(color="black"))
+  fname = paste('metabolite_chemicalID_',m,'.',sep="") 
+  plot(f)
+  ggsave(paste("metabolite_plots/",fname,'pdf',sep=""),f, device = "pdf", height = 7, width = 5, units = "cm", dpi = 400)
+   
+}
+```
+
+## Vulcano-plot
+```{r, echo = FALSE, include = TRUE, warning = FALSE, dev = "CairoSVG"}
+
+metabolites_means[,"fc"] <- log(metabolites_means[,"fc"],2)
+
+label <- c("100001461", "1083", "330", "391", "344")
+
+
+
+Volcano<- EnhancedVolcano(toptable = metabolites_means,
+                lab = metabolites_means$`CHEMICAL ID`, x = "fc", 
+                y = "p-value t-test", 
+                ylim = c(0,4), xlim = c(-1,1),
+                pCutoff = 0.0137,
+                FCcutoff = 0.26,
+                pointSize = 2.0,
+                gridlines.major = FALSE,
+                colConnectors = "black",
+                selectLab = label,
+                labCol = "black",
+                drawConnectors = TRUE
+)
+  
+
+
+Volcano
+
+emf("metabolites_Volcano_width7.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=7, height=10, family= "Arial") 
+Volcano
+dev.off()
+emf("metabolites_Volcano_width10.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=10, height=10, family= "Arial") 
+Volcano
+dev.off()
+```
+

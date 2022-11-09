@@ -1,0 +1,210 @@
+---
+title: "Report proteomics analysis, Pathway enrichment analysis based on all DEPs"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = 'F:/PD_specific_aging_signature_after_long_term_in_vitro_cultivation/Proteome')
+
+library(knitr)
+library(readxl)
+library(clusterProfiler)
+library(enrichplot)
+library(devEMF)
+library(extrafont)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(rmarkdown)
+library(DT)
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+library(kableExtra)
+library(biomaRt)
+library(ggnewscale)
+
+
+```
+
+# Summary data
+
+Here is a summary of the DEGs 
+
+```{r, echo = FALSE}
+d <- read.delim("results/tables/proteome_diff_res_DESeq2.csv", sep = ",")
+gene <- d$genes
+
+
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+
+
+# Enriched KEGG terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+                
+```{r,echo = FALSE, include=FALSE}
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ekegg <- enrichKEGG(gene         = geneEntrez,
+                    pvalueCutoff = 0.05)
+
+
+
+```
+
+Here are the enriched KEGG terms
+
+## Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ekegg), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+dotplot(ekegg, showCategory = 30)
+```
+
+## Treeplot
+
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+
+print(try(treeplot(pairwise_termsim(ekegg), showCategory = 20, nCluster = 6)))
+
+emf("results/figures/eKEGG2.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+print(try(treeplot(pairwise_termsim(ekegg), showCategory = 20, nCluster = 6)))
+dev.off()
+
+
+```
+
+## Emapplot
+
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ekegg), showCategory = 200)
+```
+
+
+# Enriched KEGG-Module terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+                
+```{r,echo = FALSE, include=FALSE}
+
+geneEntrez <- test$ENTREZID
+eMkegg <- enrichMKEGG(gene         = geneEntrez,
+                    pvalueCutoff = 1,
+                    qvalueCutoff = 1)
+
+```
+
+Here are the enriched KEGG-Module terms
+
+## Table
+```{r,echo = FALSE}
+datatable(as.data.frame(eMkegg), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+#dotplot(ekegg, showCategory = 30)
+```
+
+## Treeplot
+
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+
+print(try(treeplot(pairwise_termsim(eMkegg), showCategory = 30, nCluster = 5)))
+
+```
+
+## Emapplot
+
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+#emapplot(pairwise_termsim(ekegg), showCategory = 200)
+```
+
+
+# Enriched Wikipathway terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include=FALSE}
+ewp <- enrichWP(geneEntrez, organism = "Homo sapiens")
+```
+Here are the enriched WP terms
+
+## Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ewp), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=5}
+dotplot(ewp, showCategory = 30)
+```
+
+## Treeplot
+```{r,echo = FALSE, fig.width=12, fig.height=5}
+print(try(treeplot(pairwise_termsim(ewp),showCategory = 20, nCluster = 8)))
+emf("results/figures/eWP.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+print(try(treeplot(pairwise_termsim(ewp),showCategory = 20, nCluster = 8)))
+dev.off()
+
+```
+
+## Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ewp), showCategory = 200)
+```
+
+# Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE, include=FALSE}
+library(ReactomePA)
+
+ereactome <- enrichPathway(gene=geneEntrez, pvalueCutoff = 0.05, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+## Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+dotplot(ereactome, showCategory = 30)
+```
+
+## Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 25, nCluster = 7)
+emf("results/figures/eReactome.emf",width = 10, height = 12, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 25, nCluster = 7)
+dev.off()
+```
+
+## Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
+

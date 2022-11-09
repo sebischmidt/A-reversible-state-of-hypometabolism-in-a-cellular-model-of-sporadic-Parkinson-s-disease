@@ -1,0 +1,192 @@
+---
+title: "Report correlation between transcriptome and proteome"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = 
+'N:/AG_Wurst/blackboard_neurodegeneration/Sebastian/paper_drafts/metabolism/metabolism/correlation')
+#'E:/PD_specific_aging_signature_after_long_term_in_vitro_cultivation/correlation')
+library(DT)
+#library(here)
+#library(rtracklayer)
+#library(GenomicFeatures)
+#library(pcaMethods)
+library(ggplot2)
+library(Rtsne)
+library(RColorBrewer)
+library(pheatmap)
+library(DESeq2)
+library(gridExtra)
+library(kableExtra)
+library(biomaRt)
+library(readxl)
+library(devEMF)
+library(EnhancedVolcano)
+library(extrafont)
+library(readxl)
+library(devEMF)
+library(ggplot2)
+library(lattice)
+library(tidyverse)
+library(plotrix)
+library(fdrtool)
+library(uuid)
+library(devtools)
+library(ggbiplot)
+library(data.table)
+library(lme4)
+library(car)
+library(moments)
+library(rcompanion)
+library(vioplot)
+```
+
+# Summary data
+
+```{r, echo = FALSE, include = FALSE}
+transcriptome <- read_xlsx("bulklike_degs.xlsx")
+proteome <- read.csv("proteome_diff_res_DESeq2.csv")
+
+proteome <- proteome[,c(1,2,4,8)]
+
+transcriptome <- transcriptome[, c(2:4)]
+
+colnames(proteome)[2] <- "gene"
+colnames(proteome)[3] <- "Proteome_log2fc"
+colnames(transcriptome)[3] <- "Transcriptome_log2fc"
+colnames(proteome)[4] <- "Proteome_padj"
+colnames(transcriptome)[2] <- "Transcriptome_padj"
+transcriptome$Transcriptome_log2fc <- log2(transcriptome$Transcriptome_log2fc)
+
+
+transcriptome <- subset(transcriptome, gene %in% proteome$gene)
+proteome <- subset(proteome, gene %in% transcriptome$gene)
+
+corrTable <- merge(transcriptome, proteome, by = "gene")
+corrTable_up <- corrTable[corrTable$Transcriptome_log2fc > 0 & corrTable$Proteome_log2fc > 0,]
+corrTable_down <- corrTable[corrTable$Transcriptome_log2fc < 0 & corrTable$Proteome_log2fc < 0,]
+corrTable_up_false <- corrTable[corrTable$Transcriptome_log2fc > 0 & corrTable$Proteome_log2fc < 0,]
+corrTable_down_false <- corrTable[corrTable$Transcriptome_log2fc < 0 & corrTable$Proteome_log2fc > 0,]
+corrTable_up$Group <- "up"
+corrTable_up_false$Group <- "up_false"
+corrTable_down$Group <- "down"
+corrTable_down_false$Group <- "down_false"
+corrTable <- rbind(corrTable_down, corrTable_down_false, corrTable_up, corrTable_up_false)
+
+corrTable_correlation_positive <- rbind(corrTable_up, corrTable_down)
+write.table(corrTable_correlation_positive, file = "corrTable.txt", sep= "\t", row.names = FALSE, quote = FALSE, na = "")
+
+corrTable_correlation_negative <- rbind(corrTable_up_false, corrTable_down_false)
+write.table(corrTable_correlation_negative, file = "corrTable_false.txt", sep= "\t", row.names = FALSE, quote = FALSE, na = "")
+
+write.table(corrTable_up, file = "corrTable_up.txt", sep= "\t", row.names = FALSE, quote = FALSE, na = "")
+write.table(corrTable_up_false, file = "corrTable_up_false.txt", sep= "\t", row.names = FALSE, quote = FALSE, na = "")
+write.table(corrTable_down, file = "corrTable_down.txt", sep= "\t", row.names = FALSE, quote = FALSE, na = "")
+write.table(corrTable_down_false, file = "corrTable_down_false.txt", sep= "\t", row.names = FALSE, quote = FALSE, na = "")
+
+
+```
+
+Here is a summary of the overlap between DEGs and DEPs
+
+```{r, echo = FALSE}
+
+datatable(as.data.frame(corrTable), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+Number of downregulated DEG-DEP pairs
+
+```{r, echo = FALSE}
+nrow(corrTable_down)
+
+```
+Number of upregulated DEG-DEP pairs
+
+```{r, echo = FALSE}
+nrow(corrTable_up)
+
+```
+
+Number of downregulated DEGs; upregulated DEPs
+
+```{r, echo = FALSE}
+nrow(corrTable_down_false)
+
+```
+Number of upregulated DEGs; downregulated DEPs
+
+```{r, echo = FALSE}
+nrow(corrTable_up_false)
+
+```
+
+# Correlation plot
+
+
+```{r,echo = FALSE, include = FALSE}
+corrPlot <- ggplot(data = corrTable, aes(x = Transcriptome_log2fc, y = Proteome_log2fc, colour = Group)) + xlab("DEGs") + ylab("DEPs") + theme_classic(base_family = "Arial") +
+    geom_smooth(method = lm) + geom_point(size = 3)
+
+
+corrPlot_label<- ggplot(data = corrTable, aes(x = Transcriptome_log2fc, y = Proteome_log2fc, colour = Group, label = gene)) + xlab("DEGs") + ylab("DEPs") + theme_classic(base_family = "Arial") +
+    geom_smooth(method = lm) + geom_point(size = 3) + geom_text(hjust=0,vjust=0)
+
+```
+
+
+
+```{r,echo = FALSE}
+corrPlot
+#corrPlot_label
+
+emf("corrPlot.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=11.25, height=10, family= "Arial") 
+corrPlot
+dev.off()
+```
+# Pearson correlation coefficient
+
+The Pearson correlation for downregulated DEG-DEP pairs is:
+```{r,echo = FALSE}
+
+cor.test(corrTable_down$Proteome_log2fc, corrTable_down$Transcriptome_log2fc, method = "pearson")
+
+```
+
+The Pearson correlation for upregulated DEG-DEP pairs is:
+
+```{r,echo = FALSE}
+cor.test(corrTable_up$Proteome_log2fc, corrTable_up$Transcriptome_log2fc, method = "pearson")
+
+
+```
+
+The Pearson correlation for downregulated DEGs; upregulated DEPs is:
+
+```{r,echo = FALSE}
+cor.test(corrTable_down_false$Proteome_log2fc, corrTable_down_false$Transcriptome_log2fc, method = "pearson")
+
+
+```
+
+The Pearson correlation for upregulated DEGs; downregulated DEPs is:
+
+```{r,echo = FALSE}
+
+cor.test(corrTable_up_false$Proteome_log2fc, corrTable_up_false$Transcriptome_log2fc, method = "pearson")
+
+
+
+```

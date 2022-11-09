@@ -1,0 +1,138 @@
+---
+title: "Report transcirptome anaysis, Pathway enrichment analysis based on bulk like DEGs"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = 'F:/PD_specific_aging_signature_after_long_term_in_vitro_cultivation/transcriptome')
+
+library(knitr)
+library(readxl)
+library(clusterProfiler)
+library(enrichplot)
+library(devEMF)
+library(extrafont)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(rmarkdown)
+library(DT)
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+library(kableExtra)
+library(biomaRt)
+library(ggnewscale)
+
+```
+
+# Summary data
+
+Here is a summary of the bulk-like DEGs, Supplementary Dataset 5 from 'Schmidt, S., Luecken, M.D., Trümbach, D. et al. Primary cilia and SHH signaling impairments in human and mouse models of Parkinson’s disease. Nat Commun 13, 4819 (2022). https://doi.org/10.1038/s41467-022-32229-9'
+
+```{r, echo = FALSE}
+
+
+d <- read_xlsx("degs.xlsx")
+gene <- d$gene
+
+summary(d)
+d
+
+```
+
+
+
+# Enriched KEGG terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+                
+```{r,echo = FALSE, include=FALSE}
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ekegg <- enrichKEGG(gene         = geneEntrez,
+                    pvalueCutoff = 0.05)
+
+
+
+```
+
+Here are the enriched KEGG terms
+
+## Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ekegg), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+dotplot(ekegg, showCategory = 30)
+```
+
+## Treeplot
+
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+
+print(try(treeplot(pairwise_termsim(ekegg), showCategory = 20, nCluster = 6)))
+
+emf("eKEGG.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+print(try(treeplot(pairwise_termsim(ekegg), showCategory = 20, nCluster = 6)))
+dev.off()
+
+
+```
+
+## Emapplot
+
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ekegg), showCategory = 200)
+```
+
+
+# Enriched KEGG-Module terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+                
+```{r,echo = FALSE, include=FALSE}
+
+geneEntrez <- test$ENTREZID
+eMkegg <- enrichMKEGG(gene         = geneEntrez,
+                    pvalueCutoff = 1,
+                    qvalueCutoff = 1)
+
+```
+
+Here are the enriched KEGG-Module terms
+
+## Table
+```{r,echo = FALSE}
+datatable(as.data.frame(eMkegg), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+## Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+dotplot(eMkegg, showCategory = 30)
+```
+
+## Treeplot
+
+```{r,echo = FALSE, fig.width=12, fig.height=15}
+
+print(try(treeplot(pairwise_termsim(eMkegg), showCategory = 10, nCluster = 3)))
+emf("eMkegg.emf",width = 10, height = 6, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(eMkegg), showCategory = 10, nCluster = 3)
+dev.off()
+
+```
+
+## Emapplot
+
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+#emapplot(pairwise_termsim(ekegg), showCategory = 200)
+```

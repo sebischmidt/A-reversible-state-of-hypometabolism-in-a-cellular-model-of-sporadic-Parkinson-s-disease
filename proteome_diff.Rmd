@@ -1,0 +1,371 @@
+---
+VignetteBuilder: knitr
+Suggests: BiocStyle, knitr, rmarkdown
+title: "Report proteomics analysis, clustering and differential expression analysis"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+#if you want to change the look of your report, just browse to https://bootswatch.com/ and select a theme. Then type the name of the theme above, instead of 'cosmo'!
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = 'F:/PD_specific_aging_signature_after_long_term_in_vitro_cultivation/Proteome')
+#load libraries
+
+
+
+#library(ggbiplot)
+library(DT)
+#library(here)
+#library(rtracklayer)
+#library(GenomicFeatures)
+#library(pcaMethods)
+library(ggplot2)
+library(Rtsne)
+library(RColorBrewer)
+library(pheatmap)
+library(DESeq2)
+library(gridExtra)
+library(kableExtra)
+library(biomaRt)
+library(readxl)
+library(devEMF)
+library(EnhancedVolcano)
+library(extrafont)
+library(readxl)
+library(devEMF)
+library(ggplot2)
+library(lattice)
+library(tidyverse)
+library(plotrix)
+library(fdrtool)
+library(uuid)
+library(devtools)
+library(ggbiplot)
+library(data.table)
+library(lme4)
+library(car)
+
+
+#specifiy location of input files
+count_matrix_file <- "input/proteome_sample.xlsx"
+
+#print(length_file)
+#print(count_matrix_location)
+
+```
+
+# Loading of data
+
+***
+
+## Count matrix
+
+First, we load the count matrix.
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+#############################################
+## Load count matrix and tidy it
+
+# read count matrix
+sample_proteome <- read_xlsx("input/proteome_sample.xlsx")
+
+# assign rownames
+proteome_filtered <- sample_proteome %>% remove_rownames %>% column_to_rownames(var="UniProtIds")
+drops <- c("genes")
+proteome_filtered <- proteome_filtered[ , !(names(proteome_filtered) %in% drops)]
+proteome_filtered <- na_if(proteome_filtered, 0)
+proteome_filtered<- proteome_filtered[rowMeans(proteome_filtered, na.rm = TRUE) != 0, ]
+proteome_filtered <- proteome_filtered[rowSums(is.na(proteome_filtered)) < 11, ] ##only proteins with less than 30 % NA`s
+
+
+```
+
+
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(sample_proteome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+
+
+# Dimensionality reduction methods 
+***
+
+## PCA
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, fig.cap="PCA", figures-side, fig.show="hold", out.width="30%", dev = "CairoSVG"}
+#############################################
+#############################################
+## Dimensionality reduction methods
+
+#PCA
+
+proteome_filtered <- proteome_filtered[,order(names(proteome_filtered))]
+
+proteome_pca <- prcomp(t(na.omit(proteome_filtered)), center = TRUE, scale = TRUE)
+samples_pca <- proteome_pca$x
+
+samples <- c(rep("i1JF-R1-018",3), rep("iG3G-R1-039",3), rep("i1E4-R1-003",3), rep("iO3H-R1-005",3), rep("i82A-R1-002",3), rep("iJ2C-R1-015",3), rep("iM89-R1-005",3), rep("iC99-R1-007",3), rep("iR66-R1-007",3), rep("iAY6-R1-003",3), rep("iPX7-R1-001",3), rep("i88H-R1-002",3))
+condition <- c(rep("Ctrl",15), rep("sPD",21))
+pca_condition <- ggbiplot(proteome_pca, choices = c(1,2), ellipse=TRUE, groups=condition, var.axes = FALSE) +
+  geom_jitter(size = 2.5, aes(color = condition)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(color="black"),
+        axis.ticks = element_line(color="black"),
+        axis.text.y = element_text(color="black"))
+ggsave("results/figures/PCA_condition.emf",pca_condition, device = "emf", height = 15, width = 15, units = "cm", dpi = 400)
+
+pca_samples <- ggbiplot(proteome_pca, choices = c(1,2), ellipse=TRUE, groups=samples, var.axes = FALSE) +
+  geom_jitter(size = 2.5, aes(color = samples)) + 
+  theme_classic() +
+  theme(axis.text.x = element_text(color="black"),
+        axis.ticks = element_line(color="black"),
+        axis.text.y = element_text(color="black"))
+ggsave("results/figures/PCA_samples.emf",pca_samples, device = "emf", height = 15, width = 15, units = "cm", dpi = 400)
+
+plot(pca_condition)
+plot(pca_samples)
+
+```
+
+
+# Clustering and correlation between sample {.tabset}
+***
+Next, we perform clustering and correlation analysis, and plot these results in a couple of heatmaps. Most of the samples looked fine, but Ctrl_1 / i1JF-R1-018 as well as sPD_4 / iR66-R1-007 seemed to be outliers and were removed for further analysis.
+
+## Distance matrix, followed by clustering
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, fig.cap="Heatmap of distances", dev = "CairoSVG"}
+#############################################
+#############################################
+## Correlation analyses
+
+###################################
+#with distances
+
+#calculate distances between samples
+sampleDists <- dist(t(proteome_filtered))
+
+#tidy matrix
+sampleDistMatrix <- as.matrix(sampleDists)
+
+#make a vector with colors and then plot heatmap
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+annotation_col = data.frame(
+  Samples = samples, 
+  Condition = condition
+)
+rownames(annotation_col) = colnames(proteome_filtered)
+
+dist_heatmap <- pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors,
+         annotation_col = annotation_col)
+
+emf("results/figures/dist_heatmap.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=10, height=10, family= "Arial") 
+dist_heatmap
+dev.off()
+
+dist_heatmap
+```
+
+## Correlation between samples
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, , fig.cap="Heatmap of correlations", dev = "CairoSVG"}
+###################################
+#with correlations
+
+#calculate correlations between samples
+sampleDists <- cor(proteome_filtered)
+
+#tidy matrix
+sampleDistMatrix <- as.matrix(sampleDists)
+
+
+#make a vector with colors and then plot heatmap
+colors <- colorRampPalette(brewer.pal(9, "Blues"))(255)
+cor_heatmap <- pheatmap(sampleDistMatrix, col=colors,  annotation_col = annotation_col)
+
+emf("results/figures/cor_heatmap.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=10, height=10, family= "Arial") 
+cor_heatmap
+dev.off()
+
+```
+
+## Hierarchical clustering of the samples
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, fig.cap="Hierarchical clustering", dev = "CairoSVG"}
+###################################
+#simple hierarchical clustering using distances
+clusters <- hclust(dist(t(proteome_filtered)))
+plot(clusters, labels = colnames(proteome_filtered))
+
+emf("results/figures/hirachical_clustering.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=15, height=5, family= "Arial") 
+plot(clusters, labels = colnames(proteome_filtered))
+dev.off()
+
+```
+
+# Differential expression analysis
+***
+We performed a differential gene expression analysis using DESeq2.
+
+## Design
+
+This is how our experimental design table looks like. We will perform a DEG analysis using a nested approach (design = ~samples.n + samples.n:replicate + condition) to compensate for dependencies within the groups.
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+#############################################
+#############################################
+## Differential expression analyses
+
+proteome_sub <- proteome_filtered[,-c(1,2,3,25,26,27)]
+
+sample_names <- as.character(as.vector(colnames(proteome_sub)))
+conditions <- as.character(as.vector(c(rep("Ctrl",12), rep("sPD",18))))
+samples <- as.character(as.vector(c(rep("iG3G-R1-039",3), rep("i1E4-R1-003",3), rep("iO3H-R1-005",3), rep("i82A-R1-002",3), rep("iJ2C-R1-015",3), rep("iM89-R1-005",3), rep("iC99-R1-007",3), rep("iAY6-R1-003",3), rep("iPX7-R1-001",3), rep("i88H-R1-002",3))))
+
+replicate <- as.character(as.vector(rep(c(1,2,3),10)))
+samples.n <- as.character(as.vector(c(rep("1",3), rep("2",3), rep("3",3), rep("4",3), rep("1",3), rep("2",3), rep("3",3), rep("4",3), rep("5",3), rep("6",3))))
+#make a data frame with the experimental design
+expDesign = data.frame(sample_names = sample_names, 
+                       condition = conditions, 
+                       samples = samples,
+                       replicate = replicate,
+                       samples.n = samples.n)                 
+kable(expDesign) %>% kable_styling(bootstrap_options = "striped", full_width = F)
+```
+
+
+## Differential expression analysis with DESeq2
+
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+proteome_sub <- 2^proteome_sub
+proteome_sub <- round(proteome_sub, digits = 0)
+
+dds_nested <- DESeqDataSetFromMatrix(countData = proteome_sub, colData = expDesign, design = ~samples.n + samples.n:replicate + condition)
+dds_nested <- DESeq(dds_nested)
+
+res <- results(dds_nested, contrast = c("condition", "sPD", "Ctrl"))
+res <- res[order(res$log2FoldChange),]
+res_table <- res
+res_table$UniProtIds <- rownames(res)
+res_table <- merge(sample_proteome[,1:2], as.data.frame(res_table), by="UniProtIds")
+res_table <-  res_table[order(res_table$padj), ]
+
+
+diff_res = as.data.frame(res[which(res$padj < 0.05),])
+
+
+diff_res$UniProtIds <- rownames(diff_res)
+diff_res <- merge(sample_proteome[,1:2], diff_res, by="UniProtIds")
+diff_res <-  diff_res[order(diff_res$padj), ]
+
+```
+
+
+And these are the results of our differential gene expression analysis using DESeq2. Only genes with a signficant adjusted p-value are shown.
+
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, message=FALSE}
+
+datatable(diff_res, extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+write.table(diff_res, file = "results/tables/proteome_diff_res_DESeq2.csv", sep= ",", row.names = FALSE, quote = FALSE, na = "")
+
+```
+
+
+# Visualization of DEGs {.tabset .tabset-fade .tabset-pills}
+
+
+
+## MA-plot
+```{r, echo = FALSE, include = TRUE, warning = FALSE, dev = "CairoSVG"}
+
+plotMA(res, alpha = 0.01, main="DESeq2 MA plot, alpha=0.01")
+```
+
+## Vulcano-plot
+```{r, echo = FALSE, include = TRUE, warning = FALSE, dev = "CairoSVG"}
+
+
+label <- c("NDUFAF1", "NDUFAF2", "NDUFA11", "NDUFA4", "COX11", "COX8A", "COX17", "COX20", "COX7A2", "MT-CO3", "OGDH", "OGDHL", "PDHA1", "ACCO2", "IDH3B", "IDH3G", "SUCLG1", "SUCLG2")
+
+
+
+Volcano<- EnhancedVolcano(toptable = res_table,
+                lab = res_table$genes, x = "log2FoldChange", 
+                y = "pvalue", 
+                ylim = c(0,11), xlim = c(-2.5,2.5),
+                pCutoff = 0.01049,
+                FCcutoff = 0.2,
+                pointSize = 2.0,
+                gridlines.major = FALSE,
+                colConnectors = "black",
+                selectLab = label,
+                labCol = "black",
+                drawConnectors = TRUE
+)
+
+
+Volcano
+
+emf("results/figures/DEGs_Volcano_width7_DESeq2.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=7, height=10, family= "Arial") 
+Volcano
+dev.off()
+emf("results/figures/DEGs_Volcano_width10_DESeq2.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=10, height=10, family= "Arial") 
+Volcano
+dev.off()
+```
+
+## Heatmap
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE, dev = "CairoSVG"}
+#################################
+# heatmap of expression levels
+# We visualize the tpm data, for heatmaps also vst transformed data can be used (see DESEQ2 vignette)
+
+# Lets create some annotations for the columns
+mat_col <- data.frame(condition = conditions)
+rownames(mat_col) <- sample_names
+
+# List with colors for each annotation.
+mat_colors <- list(condition = c("darkblue","red"))
+names(mat_colors$condition) <- c("Ctrl","sPD")
+
+
+
+#Scale
+sigList <- res_table[res_table$padj < 0.05,]$UniProtIds
+
+matrixL2 <- log2(proteome_sub[row.names(proteome_sub) %in% sigList,]+1)
+
+matrixL2=t(scale(t(matrixL2)))
+rownames(matrixL2) = NULL
+
+# Plot the heatmap
+pheatmap(matrixL2, annotation_col=mat_col,  annotation_colors = mat_colors,cluster_rows = T, cluster_cols = F)
+
+
+emf("results/figures/DEGs_heatmap_DESeq2.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=7, height=5, family= "Arial") 
+pheatmap(matrixL2, annotation_col=mat_col,  annotation_colors = mat_colors,cluster_rows = T, cluster_cols = F)
+dev.off()
+
+```
+

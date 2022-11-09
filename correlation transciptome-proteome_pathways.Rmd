@@ -1,0 +1,349 @@
+---
+title: "Report correlation transcriptome and proteome, Pathway enrichment analysis based on correlating DEG, DEPs"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = 'N:/AG_Wurst/blackboard_neurodegeneration/Sebastian/paper_drafts/metabolism/metabolism/correlation')
+
+library(knitr)
+library(readxl)
+library(clusterProfiler)
+library(enrichplot)
+library(devEMF)
+library(extrafont)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(rmarkdown)
+library(DT)
+library(ggplot2)
+library(RColorBrewer)
+library(gridExtra)
+library(kableExtra)
+library(biomaRt)
+library(ggnewscale)
+
+
+```
+# DEG-DEPs; positive correlation
+## Summary data
+
+Here is a summary of the DEGs/DEPs with a positive correlation 
+
+```{r, echo = FALSE}
+d <- read.delim("corrTable.txt", sep = "\t")
+gene <- d$gene
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+## Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE}
+library(ReactomePA)
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ereactome <- enrichPathway(gene=geneEntrez, pvalueCutoff = 0.05, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+### Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+dotplot(ereactome, showCategory = 30)
+```
+
+### Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 7)
+emf("eReactome_positive correlation.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 5)
+dev.off()
+```
+
+### Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
+
+# DEG-DEPs; negative correlation
+## Summary data
+
+Here is a summary of the DEGs/DEPs with a negative correlation
+```{r, echo = FALSE}
+d <- read.delim("corrTable_false.txt", sep = "\t")
+gene <- d$gene
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+## Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE}
+library(ReactomePA)
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ereactome <- enrichPathway(gene=geneEntrez, pvalueCutoff = 0.05, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+### Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+dotplot(ereactome, showCategory = 30)
+```
+
+### Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 6)
+emf("eReactome.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 6)
+dev.off()
+```
+
+### Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
+
+
+# DEG-DEPs; downregulated DEGs, downregulated DEPs
+## Summary data
+
+Here is a summary of the correlating downregulated DEGs and downregulated DEPs
+```{r, echo = FALSE}
+d <- read.delim("corrTable_down.txt", sep = "\t")
+gene <- d$gene
+
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+## Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE}
+library(ReactomePA)
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ereactome <- enrichPathway(gene=geneEntrez, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+### Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+dotplot(ereactome, showCategory = 30)
+```
+
+### Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 8)
+emf("figures/down/eReactome.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 8)
+dev.off()
+```
+
+### Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
+
+
+# DEG-DEPs; downregulated DEGs, upregulated DEPs
+## Summary data
+
+Here is a summary of the correlating downregulated DEGs and upregulated DEPs
+```{r, echo = FALSE}
+d <- read.delim("corrTable_down_false.txt", sep = "\t")
+gene <- d$gene
+
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+## Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE}
+library(ReactomePA)
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ereactome <- enrichPathway(gene=geneEntrez, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+### Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+dotplot(ereactome, showCategory = 30)
+```
+
+### Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 25, nCluster = 7)
+emf("figures/down_false/eReactome.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 7)
+dev.off()
+```
+
+### Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
+
+
+# DEG-DEPs; upregulated DEGs, upregulated DEPs
+## Summary data
+
+Here is a summary of the correlating upregulated DEGs and upregulated DEPs
+```{r, echo = FALSE}
+d <- read.delim("corrTable_up.txt", sep = "\t")
+gene <- d$gene
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+## Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE}
+library(ReactomePA)
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ereactome <- enrichPathway(gene=geneEntrez, pvalueCutoff = 1, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+### Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+#dotplot(ereactome, showCategory = 30)
+```
+
+### Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 25, nCluster = 7)
+emf("figures/up/eReactome.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 7)
+dev.off()
+```
+
+### Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+#emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
+
+
+# DEG-DEPs; upregulated DEGs, downregulated DEPs
+## Summary data
+
+Here is a summary of the correlating upregulated DEGs and downregulated DEPs
+```{r, echo = FALSE}
+d <- read.delim("corrTable_up_false.txt", sep = "\t")
+gene <- d$gene
+
+datatable(as.data.frame(d), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+
+```
+
+
+## Enriched Reactome terms
+
+Gene identifier changed from HGNC symbol to EntrezID
+
+```{r,echo = FALSE, include = FALSE}
+library(ReactomePA)
+hs <- org.Hs.eg.db
+test <- select(hs, 
+       keys = gene,
+       columns = c("ENTREZID"),
+       keytype = "SYMBOL")
+geneEntrez <- test$ENTREZID
+ereactome <- enrichPathway(gene=geneEntrez, pvalueCutoff = 0.05, readable=TRUE)
+```
+
+Here are the enriched Reactome terms
+
+### Table
+```{r,echo = FALSE}
+datatable(as.data.frame(ereactome), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Dotplot
+```{r,echo = FALSE, fig.width=12, fig.height=10}
+dotplot(ereactome, showCategory = 30)
+```
+
+### Treeplot
+```{r,echo = FALSE, fig.width=15, fig.height=10}
+treeplot(pairwise_termsim(ereactome), showCategory = 25, nCluster = 12)
+emf("figures/up_false/eReactome.emf",width = 10, height = 8, coordDPI = 400, family = "Arial") 
+treeplot(pairwise_termsim(ereactome), showCategory = 20, nCluster = 12)
+dev.off()
+```
+
+### Emapplot
+```{r,echo = FALSE, fig.width=30, fig.height=30}
+emapplot(pairwise_termsim(ereactome), showCategory = 200)
+```
