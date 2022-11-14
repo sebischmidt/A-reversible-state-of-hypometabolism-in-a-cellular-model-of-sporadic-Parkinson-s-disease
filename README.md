@@ -9,7 +9,8 @@ For R code, following packages were used within R 4.2.0:
 
 For Matlab code, following packages were used within MATLAB R2018a:
 <ul>
-<li> und </li> 
-<li> und </li> 
+<li> Statistics and Optimization Toolbox </li> 
+<li> INCA v2.1 [https://mfa.vueinnovations.com/] </li> 
 </ul>
+
 ## Citation
