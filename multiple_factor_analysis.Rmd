@@ -1,0 +1,245 @@
+---
+VignetteBuilder: knitr
+Suggests: BiocStyle, knitr, rmarkdown
+title: "Multiple factor analysis"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+knitr::opts_knit$set(root.dir = "")
+
+#load libraries
+
+library(knitr)
+library(rmarkdown)
+
+library(DT)
+library(gridExtra)
+library(kableExtra)
+
+library(extrafont)
+library(readxl)
+library(data.table)
+
+library(FactoMineR)
+library(factoextra)
+library(ggplot2)
+library(FactoMineR)
+library(factoextra) 
+library(ggcorrplot)
+library(corrplot)
+library(Rtsne) 
+library(umap)
+library(GGally)
+library(devEMF)
+library(missMDA)
+library(lattice)
+library(tidyverse)
+
+```
+
+# Loading of data
+
+## data sets
+
+First, we load the data sets.
+
+```{r,  include = FALSE, warning = FALSE}
+#Load genes
+
+##All genes
+genes <- readr::read_delim("genes.txt", delim = "\t")
+genes <- genes %>% remove_rownames %>% column_to_rownames(var="id")
+
+
+##Subset to DEG list
+degs <- read_xlsx("deg.xlsx")
+degs <- degs$gene
+genes_subset <- genes[degs,]
+
+##Rename
+colnames(genes_subset) <- c("J2C", "1JF","M89", "C99", "R66", "G3G", "1E4","AY6", "PX7", "88H", "O3H", "82A")
+sortList <- c("1JF","G3G","1E4","O3H","82A","J2C","M89","C99","R66","AY6","PX7","88H")
+genes_subset <- genes_subset[,sortList]
+sum(is.na(genes_subset))
+genes_subset <- genes_subset[rowSums(is.na(genes_subset))==0,]
+genes_subset <- genes_subset[1:100,]
+
+
+##Transpose
+d.genes <- t(genes_subset)
+
+
+#Load proteins
+proteins <- read_xlsx("proteins.xlsx")
+proteins <- proteins %>% remove_rownames %>% column_to_rownames(var="UniProtIds")
+
+##Subset to DEP list
+deps <- read_xlsx("deps.xlsx")
+deps <- deps$UniProtIds
+proteins_subset <- proteins[deps,]
+proteins_subset <- proteins_subset[1:100,]
+
+##Rename
+colnames(proteins_subset) <- c("1JF","G3G","1E4","O3H","82A","J2C","M89","C99","R66","AY6","PX7","88H")
+
+##Transpose
+d.proteins <- t(proteins_subset)
+
+#Load metabolites
+metabolites <- readr::read_delim("dysregulated_metabolites.txt", delim = "\t")
+metabolites <- metabolites %>% remove_rownames %>% column_to_rownames(var="BIOCHEMICAL")
+sum(is.na(metabolites))
+metabolites <- metabolites[rowSums(is.na(metabolites))==0,]
+
+
+##Rename
+colnames(metabolites) <- c("1JF","G3G","1E4","O3H","82A","J2C","M89","C99","R66","AY6","PX7","88H")
+
+
+##Transpose
+d.metabolites <- t(metabolites)
+
+#Load functional assays
+d.experiments <- read_xlsx("all_data_merge.xlsx")
+d.experiments <- d.experiments %>% remove_rownames %>% column_to_rownames(var="Patient")
+d.experiments <- d.experiments[, colSums(is.na(d.experiments))==0]
+
+
+#Disease state
+d.disease_state <- matrix(c("Ctrl", "Ctrl", "Ctrl", "Ctrl", "Ctrl", "sPD", "sPD", "sPD", "sPD", "sPD","sPD","sPD"), ncol = 1, byrow = FALSE)
+colnames(d.disease_state) <- "Disease_state"
+
+
+#Merge data sets
+data <- cbind.data.frame(d.disease_state, d.experiments, d.genes, d.proteins, d.metabolites)
+
+```
+
+How does the data set looks like
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(data), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+
+#  Multiple factor analysis
+
+Now the MFA is computed and the "Percentage of explained varaince" per dimension is plotted.
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+
+res.mfa <- MFA(data,group = c(ncol(d.disease_state),ncol(d.experiments),ncol(d.genes),ncol(d.proteins),ncol(d.metabolites)),
+               name.group = c("Disease.state", "Functional assays", "DEGs", "DEPs", "dysregulated_metabolites"),
+               type = c("n", "s","s","s", "s"),
+               num.group.sup = c(1),
+               graph = FALSE)
+
+
+fviz_screeplot(res.mfa, addlabels = TRUE)
+
+```
+
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+
+
+var <- round(res.mfa$quanti.var$cos2, 2) #pick highest value (quality of representation) per dimension -> which value is represented in this dimension
+write.table(var, file = "cos.csv", sep = ";")
+
+coord <- round(res.mfa$quanti.var$coord, 2) #go to highest values per dimension (from cos2) -> positive or negative correlation/impact on dimension  
+
+
+
+write.table(coord, file = "coord.csv", sep = ";")
+
+```
+
+Contributions of variables to dimensions
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(var), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+### Visualization - mfa
+
+```{r,echo = FALSE, fig.width=12, fig.height=7, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+
+fviz_mfa_ind(res.mfa, 
+             habillage = "Disease_state", # color by groups 
+             palette = c("darkblue","chartreuse3", "darkgoldenrod3","violetred2","grey0", "red"),
+             addEllipses = TRUE, ellipse.type = "confidence", 
+             repel = TRUE, # Avoid text overlapping,
+             mean.point = FALSE,
+             partial = "all"
+)  + theme_minimal() 
+
+
+
+pdf("MFA_individuals.pdf",  
+    width=12, height=7) 
+fviz_mfa_ind(res.mfa, 
+             habillage = "Disease_state", # color by groups 
+             palette = c("darkblue","chartreuse3", "darkgoldenrod3","violetred2","grey0", "red"),
+             addEllipses = TRUE, ellipse.type = "confidence", 
+             repel = TRUE, # Avoid text overlapping,
+             mean.point = FALSE,
+             partial = "all"
+)  + theme_minimal()
+dev.off()
+```
+
+# Contribution of groups to Dimensions
+```{r,echo = FALSE, fig.width=3, fig.height=5, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+fviz_contrib(res.mfa, "group", axes = 1)
+emf("MFA_contributing_1.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=3, height=5, family= "Arial", 
+    pointsize = 30) 
+fviz_contrib(res.mfa, "group", axes = 1)
+dev.off()
+
+
+fviz_contrib(res.mfa, "group", axes = 2)
+emf("MFA_contributing_2.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=3, height=5, family= "Arial", 
+    pointsize = 30) 
+fviz_contrib(res.mfa, "group", axes = 2)
+dev.off()
+
+
+fviz_contrib(res.mfa, "group", axes = 3)
+emf("MFA_contributing_3.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=3, height=5, family= "Arial", 
+    pointsize = 30) 
+fviz_contrib(res.mfa, "group", axes = 3)
+dev.off()
+
+
+fviz_contrib(res.mfa, "group", axes = 4)
+emf("MFA_contributing_4.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=3, height=5, family= "Arial", 
+    pointsize = 30) 
+fviz_contrib(res.mfa, "group", axes = 4)
+dev.off()
+
+
+fviz_contrib(res.mfa, "group", axes = 5)
+emf("MFA_contributing_5.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=3, height=5, family= "Arial", 
+    pointsize = 30) 
+fviz_contrib(res.mfa, "group", axes = 5)
+dev.off()
+
+
+```

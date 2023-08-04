@@ -1,0 +1,534 @@
+---
+VignetteBuilder: knitr
+Suggests: BiocStyle, knitr, rmarkdown
+title: "DAns, Mitochondria quantification using mitoTracker staining"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+knitr::opts_knit$set(root.dir = "")
+#load libraries
+
+library(knitr)
+library(rmarkdown)
+library(DT)
+library(gridExtra)
+library(kableExtra)
+library(plyr)
+library(ggplot2)
+library(extrafont)
+library(readxl)
+library(sm)
+library(devEMF)
+library(tidyr)
+library(data.table)
+library(nlme)
+library(car)
+library(lme4)
+library(lmerTest)
+library(glmmTMB)
+library(dplyr)
+library(car)
+library(lme4)
+
+
+```
+
+# Loading of data
+
+## Data set
+
+First, we load, filter, and merge the data sets.
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+#Load
+data_nuc <- read.delim("results_mitoTracker/FilteredNuclei_cellbody_final.csv", sep = ",") 
+data_cyt <- read.delim("results_mitoTracker/Cytoplasm.csv", sep = ",") 
+data_cyt_filtered <- read.delim("results_mitoTracker/Filterd_Cytoplasm.csv", sep = ",") 
+
+#Filter data sets
+##FilteredNuclei_cellbody_final
+data_nuc$ID_nuc <- paste(data_nuc$ImageNumber, data_nuc$ObjectNumber, sep = "_")
+keep <- c("ID_nuc", "ObjectSkeleton_NumberBranchEnds_mitoTracker_Skeleton",	"ObjectSkeleton_NumberBranchEnds_mito_Skeleton",
+          "ObjectSkeleton_NumberNonTrunkBranches_mitoTracker_Skeleton", "ObjectSkeleton_NumberNonTrunkBranches_mito_Skeleton",
+          "ObjectSkeleton_NumberTrunks_mitoTracker_Skeleton", "ObjectSkeleton_NumberTrunks_mito_Skeleton",
+          "ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton", "ObjectSkeleton_TotalObjectSkeletonLength_mito_Skeleton")
+data_nuc <- data_nuc[,colnames(data_nuc) %in% keep]
+
+##Cytoplasm
+data_cyt$ID_nuc <- paste(data_cyt$ImageNumber, data_cyt$Parent_FilteredNuclei_cellbody_final, sep = "_")
+data_cyt$ID_cyt <- paste(data_cyt$ImageNumber, data_cyt$ObjectNumber, sep = "_")
+keep <- c("ID_nuc", "ID_cyt" )
+data_cyt <- data_cyt[,colnames(data_cyt) %in% keep]
+
+##Filterd_Cytoplasm
+data_cyt_filtered$ID_cyt <- paste(data_cyt_filtered$ImageNumber, data_cyt_filtered$Parent_Cytoplasm, sep = "_")
+data_cyt_filtered$ID_cyt_filtered <- paste(data_cyt_filtered$ImageNumber, data_cyt_filtered$ObjectNumber, sep = "_")
+keep <- c("ID_cyt_filtere", "ID_cyt", "ImageNumber", "ObjectNumber", "Metadata_SampleID", "Metadata_Replicate_ID", "AreaShape_Area", 
+          "Mean_Puncta_Mito_AreaShape_Area", "Mean_Puncta_Mito_Intensity_MeanIntensity_Corr_mito", 
+          "Mean_Puncta_Mito_Number_Object_Number",
+          "Mean_Puncta_mitoTracker_AreaShape_Area", "Mean_Puncta_mitoTracker_Intensity_MeanIntensity_Corr_mitoTracker", 
+          "Mean_Puncta_mitoTracker_Number_Object_Number"
+          )
+
+data_cyt_filtered <- data_cyt_filtered[,colnames(data_cyt_filtered) %in% keep]
+
+
+#Merge
+data <- merge(data_nuc, data_cyt, by = "ID_nuc")
+data <- merge(data, data_cyt_filtered, by = "ID_cyt")
+
+#Sort
+sortList <- c("i1JF-R1-018", "iG3G-R1-039", "i1E4-R1-003", "iO3H-R1-005", "i82A-R1-002", "iJ2C-R1-015", "iM89-R1-005", "iC99-R1-007", "iR66-R1-007", "iAY6-R1-003", "iPX7-R1-001", "i88H-R1-002")
+
+data$Metadata_SampleID <- factor(data$Metadata_SampleID, levels = sortList)
+
+
+#Add disease state information
+Ctrl <- c("i1JF-R1-018", "iG3G-R1-039", "i1E4-R1-003", "iO3H-R1-005", "i82A-R1-002")
+data$Disease_state <- ifelse(data$Metadata_SampleID %in% Ctrl, "Ctrl", "sPD")
+
+
+#Add values normalized by cytoplasm area
+data$"mitoTracker_MeanArea" <- data$Mean_Puncta_mitoTracker_AreaShape_Area/data$AreaShape_Area
+data$"mitoTracker_MeanCount" <- data$Mean_Puncta_mitoTracker_Number_Object_Number/data$AreaShape_Area
+data$"mitoTracker_MeanLength" <- data$ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton/data$AreaShape_Area
+
+#Sum Branchpoints
+data$Branchpoints <- data$ObjectSkeleton_NumberNonTrunkBranches_mitoTracker_Skeleton + data$ObjectSkeleton_NumberTrunks_mitoTracker_Skeleton
+
+```
+
+How does the data set looks like
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(data), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+##  Set tresholds {.tabset} 
+
+Applied thresholds are indicated by grey horizontal line.
+
+### Mean_Puncta_mitoTracker_AreaShape_Area
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= Mean_Puncta_mitoTracker_AreaShape_Area, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = 200)
+```
+
+### Mean_Puncta_mitoTracker_Number_Object_Number
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= Mean_Puncta_mitoTracker_Number_Object_Number, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 1400)
+```
+
+### mitoTracker_MeanArea
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= mitoTracker_MeanArea, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.04)
+```
+
+### mitoTracker_MeanCount
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= mitoTracker_MeanCount, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.35)
+```
+
+### mitoTracker_MeanLength
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= mitoTracker_MeanLength, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.07)
+```
+
+### Branchpoints
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= Branchpoints, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = 100)
+```
+
+
+## Counts per sample
+
+```{r}
+#Apply tresholds
+data <- subset(data, Mean_Puncta_mitoTracker_AreaShape_Area < 200)
+data <- subset(data, Mean_Puncta_mitoTracker_Number_Object_Number < 1400)
+data <- subset(data, mitoTracker_MeanArea < 0.04)
+data <- subset(data, mitoTracker_MeanCount < 0.35)
+data <- subset(data, mitoTracker_MeanLength < 0.07)
+data <- subset(data, Branchpoints < 100)
+
+#Save data set
+write.csv(data, file = "results_mitoTracker/tables/data_mitoTracker.csv")
+
+```
+
+Cell counts per cell line:
+```{r}
+#data <- read.csv("results_mitoTracker/tables/data_mitoTracker.csv")
+table(data$Metadata_SampleID)
+```
+Mean cell count:
+
+```{r}
+mean(table(data$Metadata_SampleID))
+```
+
+# Visualize mitochondrial parameters
+
+Various mitochondrial parameters are visualized for each patient-derived cell line as well as for the disease state
+Mean Ctrl levels are indicated by grey horizontal line.
+
+## MitoTracker Area {.tabset} 
+
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Mean_Puncta_mitoTracker_AreaShape_Area))
+
+ggplot(data,aes(x= Metadata_SampleID, y= Mean_Puncta_mitoTracker_AreaShape_Area, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-area_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Mean_Puncta_mitoTracker_AreaShape_Area))
+
+ggplot(data,aes(x= Disease_state, y= Mean_Puncta_mitoTracker_AreaShape_Area, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-area_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## MitoTracker Count {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Mean_Puncta_mitoTracker_Number_Object_Number))
+
+ggplot(data,aes(x= Metadata_SampleID, y= Mean_Puncta_mitoTracker_Number_Object_Number, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-count_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Mean_Puncta_mitoTracker_Number_Object_Number))
+
+ggplot(data,aes(x= Disease_state, y= Mean_Puncta_mitoTracker_Number_Object_Number, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-count_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## MitoTracker Intensity {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Mean_Puncta_mitoTracker_Intensity_MeanIntensity_Corr_mitoTracker))
+
+ggplot(data,aes(x= Metadata_SampleID, y= Mean_Puncta_mitoTracker_Intensity_MeanIntensity_Corr_mitoTracker, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-intensity_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Mean_Puncta_mitoTracker_Intensity_MeanIntensity_Corr_mitoTracker))
+
+ggplot(data,aes(x= Disease_state, y= Mean_Puncta_mitoTracker_Intensity_MeanIntensity_Corr_mitoTracker, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-intensity_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## MitoTracker Mean Area {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$mitoTracker_MeanArea))
+
+ggplot(data,aes(x= Metadata_SampleID, y= mitoTracker_MeanArea, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-MeanArea_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$mitoTracker_MeanArea))
+
+ggplot(data,aes(x= Disease_state, y= mitoTracker_MeanArea, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-MeanArea_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## MitoTracker Mean Count {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$mitoTracker_MeanCount))
+
+ggplot(data,aes(x= Metadata_SampleID, y= mitoTracker_MeanCount, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-MeanCount_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$mitoTracker_MeanCount))
+
+ggplot(data,aes(x= Disease_state, y= mitoTracker_MeanCount, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-MeanCount_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+## MitoTracker Number Branch Ends {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$ObjectSkeleton_NumberBranchEnds_mitoTracker_Skeleton))
+
+ggplot(data,aes(x= Metadata_SampleID, y= ObjectSkeleton_NumberBranchEnds_mitoTracker_Skeleton, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-BranchEnds_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$ObjectSkeleton_NumberBranchEnds_mitoTracker_Skeleton))
+
+ggplot(data,aes(x= Disease_state, y= ObjectSkeleton_NumberBranchEnds_mitoTracker_Skeleton, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-BranchEnds_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+## MitoTracker Number Branchpoints {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Branchpoints))
+
+ggplot(data,aes(x= Metadata_SampleID, y= Branchpoints, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-Branchpoints_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Branchpoints))
+
+ggplot(data,aes(x= Disease_state, y= Branchpoints, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-Branchpoints_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+## MitoTracker Skeleton Length {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton))
+
+ggplot(data,aes(x= Metadata_SampleID, y= ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-SkeletonLength_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton))
+
+ggplot(data,aes(x= Disease_state, y= ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-SkeletonLength_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+## MitoTracker Mean Skeleton Length {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$mitoTracker_MeanLength))
+
+ggplot(data,aes(x= Metadata_SampleID, y= mitoTracker_MeanLength, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-Mean_SkeletonLength_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$mitoTracker_MeanLength))
+
+ggplot(data,aes(x= Disease_state, y= mitoTracker_MeanLength, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results_mitoTracker/figures/data_mitoTracker-Mean_SkeletonLength_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+
+# Statistical testing using linear mixed effects models {.tabset} 
+
+Nested approach ("Mitochondrial Parameter" ~  Disease_state + (1 | Disease_state:Metadata_SampleID)) to compensate for dependencies within the groups.
+
+## MitoTracker Area
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(Mean_Puncta_mitoTracker_AreaShape_Area ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## MitoTracker Count 
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(Mean_Puncta_mitoTracker_Number_Object_Number ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## MitoTracker Intensity
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(Mean_Puncta_mitoTracker_Intensity_MeanIntensity_Corr_mitoTracker ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## MitoTracker Mean Area
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(mitoTracker_MeanArea ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## MitoTracker Mean Count
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(mitoTracker_MeanCount ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+
+## MitoTracker Number Branch Ends
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(ObjectSkeleton_NumberBranchEnds_mitoTracker_Skeleton ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+
+## MitoTracker Number Branchpoints
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(Branchpoints ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+
+## MitoTracker Skeleton Length
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(ObjectSkeleton_TotalObjectSkeletonLength_mitoTracker_Skeleton ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+
+## MitoTracker Mean Skeleton Length
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(mitoTracker_MeanLength ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+

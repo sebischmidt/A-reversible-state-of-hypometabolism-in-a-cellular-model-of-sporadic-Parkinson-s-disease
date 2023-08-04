@@ -1,0 +1,399 @@
+---
+VignetteBuilder: knitr
+Suggests: BiocStyle, knitr, rmarkdown
+title: "NPCs, GLUT1 quantification using antibody staining"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+knitr::opts_knit$set(root.dir = "")
+#load libraries
+
+library(knitr)
+library(rmarkdown)
+library(DT)
+library(gridExtra)
+library(kableExtra)
+library(plyr)
+library(ggplot2)
+library(extrafont)
+library(readxl)
+library(sm)
+library(devEMF)
+library(tidyr)
+library(data.table)
+library(nlme)
+library(car)
+library(lme4)
+library(lmerTest)
+library(glmmTMB)
+library(dplyr)
+library(car)
+library(lme4)
+
+
+```
+
+# Loading of data
+
+## Data set
+
+First, we load, filter, and merge the data sets.
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+#Load
+
+data <- read.delim("Filterd_Cytoplasm.csv", sep = ",") 
+
+#Filter data sets
+keep <- c("ImageNumber", "ObjectNumber", "Metadata_SampleID", "Metadata_Replicate_ID", "AreaShape_Area", "Intensity_MeanIntensity_Corr_GLUT", "RadialDistribution_FracAtD_Corr_GLUT_1of10","RadialDistribution_FracAtD_Corr_GLUT_2of10","RadialDistribution_FracAtD_Corr_GLUT_3of10","RadialDistribution_FracAtD_Corr_GLUT_4of10","RadialDistribution_FracAtD_Corr_GLUT_5of10","RadialDistribution_FracAtD_Corr_GLUT_6of10","RadialDistribution_FracAtD_Corr_GLUT_7of10","RadialDistribution_FracAtD_Corr_GLUT_8of10","RadialDistribution_FracAtD_Corr_GLUT_9of10","RadialDistribution_FracAtD_Corr_GLUT_10of10",
+          "RadialDistribution_MeanFrac_Corr_GLUT_1of10","RadialDistribution_MeanFrac_Corr_GLUT_2of10","RadialDistribution_MeanFrac_Corr_GLUT_3of10","RadialDistribution_MeanFrac_Corr_GLUT_4of10","RadialDistribution_MeanFrac_Corr_GLUT_5of10","RadialDistribution_MeanFrac_Corr_GLUT_6of10","RadialDistribution_MeanFrac_Corr_GLUT_7of10","RadialDistribution_MeanFrac_Corr_GLUT_8of10","RadialDistribution_MeanFrac_Corr_GLUT_9of10","RadialDistribution_MeanFrac_Corr_GLUT_10of10"
+          )
+
+data <- data[,colnames(data) %in% keep]
+
+
+#Sort
+sortList <- c("i1JF-R1-018", "iG3G-R1-039", "i1E4-R1-003", "iO3H-R1-005", "i82A-R1-002", "iJ2C-R1-015", "iM89-R1-005", "iC99-R1-007", "iR66-R1-007", "iAY6-R1-003", "iPX7-R1-001", "i88H-R1-002")
+
+data$Metadata_SampleID <- factor(data$Metadata_SampleID, levels = sortList)
+
+
+#Add disease state information
+Ctrl <- c("i1JF-R1-018", "iG3G-R1-039", "i1E4-R1-003", "iO3H-R1-005", "i82A-R1-002")
+data$Disease_state <- ifelse(data$Metadata_SampleID %in% Ctrl, "Ctrl", "sPD")
+
+
+```
+
+How does the data set looks like
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(data), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+##  Set tresholds {.tabset} 
+
+Applied thresholds are indicated by grey horizontal line.
+
+
+### Area
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= AreaShape_Area, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1) + theme_classic() 
+```
+
+### Mean Intensity
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= Intensity_MeanIntensity_Corr_GLUT, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = 0.6)
+```
+
+
+
+### Intensity cytoplasm ring 10
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_FracAtD_Corr_GLUT_10of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.72)
+```
+
+### Intensity cytoplasm ring 9
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_FracAtD_Corr_GLUT_9of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.55) + geom_hline(yintercept = 0.15)
+```
+
+### Mean intensity cytoplasm ring 10
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_MeanFrac_Corr_GLUT_10of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.7) + geom_hline(yintercept = 1.2)
+```
+
+### Mean intensity cytoplasm ring 9
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_MeanFrac_Corr_GLUT_9of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic()  + geom_hline(yintercept = 0.85) + geom_hline(yintercept = 1.2)
+```
+
+
+
+
+## Counts per sample
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+#Apply tresholds
+data <- subset(data, Intensity_MeanIntensity_Corr_GLUT < 0.6)
+data <- subset(data, RadialDistribution_FracAtD_Corr_GLUT_10of10 < 0.72)
+data <- subset(data, RadialDistribution_FracAtD_Corr_GLUT_9of10 < 0.55 & RadialDistribution_FracAtD_Corr_GLUT_9of10 > 0.15)
+data <- subset(data, RadialDistribution_MeanFrac_Corr_GLUT_10of10 < 1.2 & RadialDistribution_MeanFrac_Corr_GLUT_10of10 > 0.7)
+data <- subset(data, RadialDistribution_MeanFrac_Corr_GLUT_9of10 < 1.2 & RadialDistribution_MeanFrac_Corr_GLUT_9of10 > 0.85)
+
+
+#Save data set
+write.csv(data, file = "results/tables/data_GLUT1.csv")
+
+```
+
+
+Cell counts per cell line:
+```{r}
+#data <- read.csv("results/tables/data_GLUT1.csv")
+table(data$Metadata_SampleID)
+```
+Mean cell count:
+
+```{r}
+mean(table(data$Metadata_SampleID))
+```
+
+
+# Visualize mitochondrial parameters
+
+Various GLUT parameters are visualized for each patient-derived cell line as well as for the disease state
+Mean Ctrl levels are indicated by grey horizontal line.
+
+
+## Cytoplasmic area {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$AreaShape_Area))
+
+ggplot(data,aes(x= Metadata_SampleID, y= AreaShape_Area, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_area_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$AreaShape_Area))
+
+ggplot(data,aes(x= Disease_state, y= AreaShape_Area, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_area_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## Mean intensity {.tabset} 
+
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Intensity_MeanIntensity_Corr_GLUT))
+
+ggplot(data,aes(x= Metadata_SampleID, y= Intensity_MeanIntensity_Corr_GLUT, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_mean-intensity_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$Intensity_MeanIntensity_Corr_GLUT))
+
+ggplot(data,aes(x= Disease_state, y= Intensity_MeanIntensity_Corr_GLUT, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_mean-intensity_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+
+## Intensity cytoplasm ring 10 {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_FracAtD_Corr_GLUT_10of10))
+
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_FracAtD_Corr_GLUT_10of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_FracAtD10_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_FracAtD_Corr_GLUT_10of10))
+
+ggplot(data,aes(x= Disease_state, y= RadialDistribution_FracAtD_Corr_GLUT_10of10, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_FracAtD10_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## Intensity cytoplasm ring 9 {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_FracAtD_Corr_GLUT_9of10))
+
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_FracAtD_Corr_GLUT_9of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_FracAtD9_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_FracAtD_Corr_GLUT_9of10))
+
+ggplot(data,aes(x= Disease_state, y= RadialDistribution_FracAtD_Corr_GLUT_9of10, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_FracAtD9_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+```
+
+## Mean intensity cytoplasm ring 10 {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_MeanFrac_Corr_GLUT_10of10))
+
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_MeanFrac_Corr_GLUT_10of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_MeanFrac10_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_MeanFrac_Corr_GLUT_10of10))
+
+ggplot(data,aes(x= Disease_state, y= RadialDistribution_MeanFrac_Corr_GLUT_10of10, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_MeanFrac10_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+## Mean intensity cytoplasm ring 9 {.tabset} 
+### each sample
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_MeanFrac_Corr_GLUT_9of10))
+
+ggplot(data,aes(x= Metadata_SampleID, y= RadialDistribution_MeanFrac_Corr_GLUT_9of10, group = Metadata_SampleID, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_MeanFrac9_violin-plot_patients.svg", width = 20, height = 6, units = "cm")
+
+```
+
+### disease-state
+```{r,echo = FALSE, fig.width=8, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+yint <- median(as.numeric(data[data$Disease_state == "Ctrl",]$RadialDistribution_MeanFrac_Corr_GLUT_9of10))
+
+ggplot(data,aes(x= Disease_state, y= RadialDistribution_MeanFrac_Corr_GLUT_9of10, group = Disease_state, color = Disease_state, fill = Disease_state) ) +
+  geom_violin(trim=FALSE) + scale_color_manual(values=c("darkblue" , "red")) + 
+  scale_fill_manual(values=alpha(c("darkblue" , "red"), 0.1)) +
+  geom_boxplot(width=0.1)+
+  theme_classic() + geom_hline(yintercept = yint)
+ggsave(filename = "results/figures/data_MeanFrac9_violin-plot_Disease-state.svg", width = 8, height = 6, units = "cm")
+
+```
+
+
+# Statistical testing using linear mixed effects models {.tabset} 
+
+Nested approach ("GLUT intensity" ~  Disease_state + (1 | Disease_state:Metadata_SampleID)) to compensate for dependencies within the groups.
+
+## Cytoplasmic area
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(AreaShape_Area ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## Mean intensity 
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(Intensity_MeanIntensity_Corr_GLUT ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## Intensity cytoplasm ring 10
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(RadialDistribution_FracAtD_Corr_GLUT_10of10 ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## Intensity cytoplasm ring 9
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(RadialDistribution_FracAtD_Corr_GLUT_9of10 ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+```
+
+## Mean intensity cytoplasm ring 10
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(RadialDistribution_MeanFrac_Corr_GLUT_10of10 ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+
+## Mean intensity cytoplasm ring 9
+
+```{r,echo = FALSE, fig.width=20, fig.height=6, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+mod0 <- lme4::lmer(RadialDistribution_MeanFrac_Corr_GLUT_9of10 ~  Disease_state + (1 | Disease_state:Metadata_SampleID), data = data, REML = FALSE); summary(mod0)
+Anova(mod0)
+
+```
+
