@@ -1,0 +1,514 @@
+---
+VignetteBuilder: knitr
+Suggests: BiocStyle, knitr, rmarkdown
+title: "Correlation analysis"
+author: "Sebastian Schmidt"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmarkdown::html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: TRUE
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+knitr::opts_knit$set(root.dir = "C:/Users/SebastianSchmidt/OneDrive - Helmholtz Zentrum München/correlation and clustering")
+
+#knitr::opts_knit$set(root.dir = "C:/Users/sschm/OneDrive - Helmholtz Zentrum München/correlation and clustering")
+
+
+#load libraries
+
+library(knitr)
+library(rmarkdown)
+library(lattice)
+library(Hmisc)
+
+library(DT)
+library(gridExtra)
+library(kableExtra)
+library(plyr)
+library(ggplot2)
+library(extrafont)
+library(readxl)
+library(sm)
+library(devEMF)
+library(tidyr)
+library(data.table)
+library(nlme)
+library(car)
+library(lme4)
+library(lmerTest)
+library(glmmTMB)
+library(dplyr)
+library(car)
+library(tidyverse)
+library(ggcorrplot)
+library(fdrtool)
+library(corrplot)
+
+library(dichromat)
+library(RColorBrewer)
+library(ggpubr)
+
+
+
+```
+
+# Loading of datads
+
+## data sets
+
+First, we load the data sets.
+
+```{r,  include = FALSE, warning = FALSE}
+#Load
+
+data <- read_xlsx("all_data_merge.xlsx")
+data <- data %>% remove_rownames %>% column_to_rownames(var="Patient")
+data_hNPCs <- read_xlsx("all_data_merge_hNPCs.xlsx") 
+data_hNPCs <- data_hNPCs %>% remove_rownames %>% column_to_rownames(var="Patient")
+data_DAns <- read_xlsx("all_data_merge_DAns.xlsx") 
+data_DAns <- data_DAns %>% remove_rownames %>% column_to_rownames(var="Patient")
+
+#Split Ctrl vs sPD
+data_Ctrl <- data[data$disease_state == "Ctrl",]
+data_sPD <- data[data$disease_state == "sPD",]
+```
+
+How does the data set looks like
+
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(data), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+
+#  Calculate Pearson correlations
+
+data set will be filtered. All non-numeric columns will be removed.
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+
+drop <- c("disease_state", "gender")
+
+data <- data[,!colnames(data) %in% drop]
+data_sPD <- data_sPD[,!colnames(data_sPD) %in% drop]
+
+```
+
+## Whole dataset {.tabset} 
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+##Calculate pearson correlation
+cor <- rcorr(as.matrix(data), type = "pearson")
+
+##Extract coefficient and pvalue
+cor_coef <- cor$r
+cor_pvalue <- cor$P
+cor_pvalue[is.na(cor_pvalue)] <- 0
+
+##Flatten correlation matrix
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+flat <- flattenCorrMatrix(cor$r, cor$P)
+
+
+##Save tables
+write.table(cor_coef, file = "results/tables/correlation_matrix.csv", sep = ",", quote = FALSE, row.names = TRUE)
+write.table(cor_pvalue, file = "results/tables/correlation_matrix_pvalue.csv", sep = ",", quote = FALSE, row.names = TRUE)
+write.table(flat, file = "results/tables/correlation_matrix_flat.csv", sep = ",", quote = FALSE, row.names = TRUE)
+
+```
+
+### Correlations as table
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(flat), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Correlation plot - circles
+
+```{r,echo = FALSE, fig.width=40, fig.height=40, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+corrplot(cor_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black'
+        ) 
+
+emf("results/figures/correlation_circles.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=40, height=40, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black'
+        ) 
+dev.off()
+```
+
+### Correlation plot - coefficients
+```{r,echo = FALSE, fig.width=40, fig.height=40, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+corrplot(cor_coef, 
+         method = "number",
+         #type = 'lower', #tl.srt = 45,
+         col=colorRampPalette(c("darkblue", "white", "darkred"))(200),
+         order = 'hclust', tl.col = 'black'
+         
+         ) 
+
+emf("results/figures/correlation_coef.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=40, height=40, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_coef, 
+         method = "number",
+         #type = 'lower', #tl.srt = 45,
+         col=colorRampPalette(c("darkblue", "white", "darkred"))(200),
+         order = 'hclust', tl.col = 'black'
+         
+         ) 
+dev.off()
+
+
+
+```
+
+
+## sPD patients only {.tabset} 
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+##Calculate pearson correlation
+cor_sPD <- rcorr(as.matrix(data_sPD), type = "pearson")
+
+##Extract coeficient and p-value
+cor_sPD_coef <- cor_sPD$r
+cor_sPD_pvalue <- cor_sPD$P
+cor_sPD_pvalue[is.na(cor_sPD_pvalue)] <- 0
+
+##Flatten correlation matrix
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+
+flat_sPD <- flattenCorrMatrix(cor_sPD$r, cor_sPD$P)
+
+##Save tables
+write.table(cor_sPD_coef, file = "results/tables/correlation_matrix_sPD.csv", sep = ",", quote = FALSE, row.names = TRUE)
+write.table(cor_sPD_pvalue, file = "results/tables/correlation_matrix_sPD_pvalue.csv", sep = ",", quote = FALSE, row.names = TRUE)
+write.table(flat_sPD, file = "results/tables/correlation_matrix_sPD_flat.csv", sep = ",", quote = FALSE, row.names = TRUE)
+
+```
+
+### Correlations as table
+```{r, echo = FALSE, include = TRUE, warning = FALSE}
+datatable(as.data.frame(flat_sPD), extensions = c('Buttons', 'FixedColumns'), options = list(dom = 'Bfrtip', buttons = c('csv', 'excel'), autoWidth = TRUE, scrollX = TRUE, fixedColumns = list(rightColumns = 1)))
+```
+
+### Correlation plot - circles
+
+```{r,echo = FALSE, fig.width=40, fig.height=40, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+corrplot(cor_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black'
+                 ) 
+
+emf("results/figures/correlation_sPD_circles.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=40, height=40, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'lower'
+        ) 
+dev.off()
+```
+
+### Correlation plot - coefficients
+```{r,echo = FALSE, fig.width=40, fig.height=40, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+corrplot(cor_sPD_coef, 
+         method = "number",
+         #type = 'lower', #tl.srt = 45,
+         col=colorRampPalette(c("darkblue", "white", "darkred"))(200),
+         order = 'hclust', tl.col = 'black'
+         ) 
+
+emf("results/figures/correlation_sPD_coef.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=40, height=40, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_sPD_coef, 
+         method = "number",
+         #type = 'lower', #tl.srt = 45,
+         col=colorRampPalette(c("darkblue", "white", "darkred"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'upper',
+         ) 
+dev.off()
+
+
+
+```
+
+
+# Visualize subset of interesting paramters for sPD {.tabset} 
+
+```{r, echo = FALSE, include = FALSE, warning = FALSE}
+
+col_keep <- read_xlsx("col_names.xlsx")
+
+##Subset corr matrix
+keep <- col_keep$use
+
+cor_intPar_sPD_coef <- cor_sPD_coef[colnames(cor_sPD_coef) %in% keep,colnames(cor_sPD_coef) %in% keep]
+cor_intPar_sPD_pvalue <- cor_sPD_pvalue[colnames(cor_sPD_pvalue) %in% keep,colnames(cor_sPD_pvalue) %in% keep]
+
+```
+
+## Correlation plot - circles
+
+```{r,echo = FALSE, fig.width=30, fig.height=30, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+corrplot(cor_intPar_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black'
+        ) 
+
+emf("results/figures/correlation_intPar_sPD_circles.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=30, height=30, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_intPar_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black'
+        ) 
+dev.off()
+```
+
+## Correlation plot - circles; lower
+
+```{r,echo = FALSE, fig.width=30, fig.height=30, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+corrplot(cor_intPar_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'lower'
+        ) 
+
+emf("results/figures/correlation_intPar_sPD_circles_lower.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=30, height=30, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_intPar_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'lower'
+        ) 
+dev.off()
+```
+
+## Correlation plot - circles; upper
+
+```{r,echo = FALSE, fig.width=30, fig.height=30, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+corrplot(cor_intPar_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'upper'
+        ) 
+
+emf("results/figures/correlation_intPar_sPD_circles_upper.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=30, height=30, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_intPar_sPD_coef, 
+         col=colorRampPalette(c("darkblue", "white", "red"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'upper'
+        ) 
+dev.off()
+```
+
+## Correlation plot - coefficients
+```{r,echo = FALSE, fig.width=30, fig.height=30, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+
+corrplot(cor_intPar_sPD_coef, 
+         method = "number",
+         #type = 'lower', #tl.srt = 45,
+         col=colorRampPalette(c("darkblue", "white", "darkred"))(200),
+         order = 'hclust', tl.col = 'black'
+         ) 
+
+emf("results/figures/correlation_intPar_sPD_coef.emf", emfPlus= FALSE, coordDPI = 400, 
+     width=30, height=30, family= "Arial", 
+    pointsize = 30) 
+corrplot(cor_intPar_sPD_coef, 
+         method = "number",
+         #type = 'lower', #tl.srt = 45,
+         col=colorRampPalette(c("darkblue", "white", "darkred"))(200),
+         order = 'hclust', tl.col = 'black',
+         type = 'lower'
+         ) 
+dev.off()
+
+
+
+```
+
+
+# Visualize interesting paramters as xy-plot {.tabset} 
+
+```{r, include = FALSE, echo = FALSE, warnings = FALSE}
+data <- read_xlsx("all_data_merge.xlsx")
+#data <- data %>% remove_rownames %>% column_to_rownames(var="Patient")
+```
+
+
+```{r,echo = FALSE, fig.width=15, fig.height=15, dev = c("CairoJPEG", "cairo_pdf", "CairoSVG")}
+a <- ggscatter(data, x = "delta_HY", y = "hNPC_OGDHC_activity",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                add.params = list(color = c("red"), 
+                fill = c("red")),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state))  
+
+b <- ggscatter(data, x = "delta_HY", y = "DAns_OGDHC_activity",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                add.params = list(color = c("red"), 
+                fill = c("red")),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+c <- ggscatter(data, x = "delta_UPDRS_III", y = "hNPC_OGDHC_activity",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                add.params = list(color = c("red"), 
+                fill = c("red")),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+d <- ggscatter(data, x = "hNPC_OGDHC_activity", y = "hNPC_YSI_glucose",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+e <-  ggscatter(data, x = "delta_HY", y = "hNPC_YSI_glucose",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                add.params = list(color = c("red"), 
+                fill = c("red")),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+f <- ggscatter(data, x = "hNPC_OGDHC_activity" , y = "DAns_OGDHC_activity",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+g <- ggscatter(data, x = "hNPC_OGDHL_protein", y = "hNPC_nf_GLI3_FL_R_ratio",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+h <- ggscatter(data, x = "delta_HY", y = "hNPC_OGDHL_protein",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                add.params = list(color = c("red"), 
+                fill = c("red")),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+i <- ggscatter(data, x = "hNPC_OGDHC_activity" , y = "hNPC_complexI_activity",
+                add = "reg.line",               
+                conf.int = TRUE,                
+                color = "disease_state", 
+                palette = c("darkblue", "red"),
+                label = "Patient",
+                repel = TRUE,
+                shape = "disease_state",
+                size = 5
+                )+
+  stat_cor(aes(color = disease_state)) 
+
+
+
+
+
+
+
+
+figure <- ggarrange(a, b,c,d,e,f,g,h,i + font("x.text", size = 10),
+                    ncol = 3, nrow = 3, align = "hv")
+
+figure
+
+emf("results/figures/correlation_sPD_selected_plots.emf", emfPlus= FALSE, coordDPI = 400, 
+    width=15, height=15, family= "Arial") 
+figure
+dev.off()
+
+
+
+```
+
