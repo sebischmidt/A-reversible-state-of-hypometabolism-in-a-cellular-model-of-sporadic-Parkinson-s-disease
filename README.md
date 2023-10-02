@@ -37,10 +37,4 @@ For the visualization of WikiPathways terms in cytoscape v3.9.1:
 <li> enhancedGraphics v1.5.4 </li> 
 </ul>
 
-For Matlab code, following packages were used within MATLAB R2018a:
-<ul>
-<li> Statistics and Optimization Toolbox </li> 
-<li> INCA v2.1 [https://mfa.vueinnovations.com/] </li> 
-</ul>
-
 ## Citation
